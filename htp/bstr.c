@@ -445,7 +445,9 @@ int64_t bstr_util_mem_to_pint(const void *_data, size_t len, int base, size_t *l
         }
     }
 
-    *lastlen = i + 1;
+    // assert (i == len);
+
+    *lastlen = i;
 
     return rval;
 }
