@@ -255,18 +255,81 @@ int64_t htp_parse_content_length(bstr *b) {
 }
 
 /**
- * Parses chunk length (positive hexadecimal number). White space is allowed before
+ * Parses chunk length (positive hexadecimal number). White space is NOT allowed before
  * and after the number. An error will be returned if the chunk length is greater than
  * INT32_MAX.
+ *
+ * Unfortunatelly some clients and servers pass spce Before and/or after number
+ * https://java.net/jira/browse/GRIZZLY-1684 for example of that thing
  *
  * @param[in] data
  * @param[in] len
  * @return Chunk length, or a negative number on error.
  */
+
+ /*
+  *
+  * rfc2616 state that:
+  *
+  * quoted-string  = ( <"> *(qdtext | quoted-pair ) <"> )
+  * uoted-pair     = "\" CHAR
+  * CHAR           = <any US-ASCII character (octets 0 - 127)>
+  * qdtext         = <any TEXT except <">>
+  * TEXT           = <any OCTET except CTLs, but including LWS>
+  * LWS            = [CRLF] 1*( SP | HT )
+  * ------------------------------------------------------------
+  * Chunked-Body   = *chunk
+  *                  last-chunk
+  *                  trailer
+  *                  CRLF
+  * chunk          = chunk-size [ chunk-extension ] CRLF
+  *                  chunk-data CRLF
+  * chunk-size     = 1*HEX
+  * last-chunk     = 1*("0") [ chunk-extension ] CRLF
+  * chunk-extension= *( ";" chunk-ext-name [ "=" chunk-ext-val ] )
+  * chunk-ext-name = token
+  * chunk-ext-val  = token | quoted-string
+  * chunk-data     = chunk-size(OCTET)
+  * trailer        = *(entity-header CRLF)
+  *
+  * So, chunk extension may contain \r\n inside quotes !!!!
+  */
+
 int64_t htp_parse_chunked_length(unsigned char *data, size_t len) {
-    int64_t chunk_len = htp_parse_positive_integer_whitespace(data, len, 16);
-    if (chunk_len < 0) return chunk_len;
-    if (chunk_len > INT32_MAX) return -1;
+    int64_t chunk_len;
+    size_t last_pos;
+
+    // skip LWS before number
+    while (len && htp_is_lws(*data)) {
+        data++;
+        len--;
+    }
+
+    if (len == 0)
+        return -1001;
+
+    chunk_len = bstr_util_mem_to_pint(data, len, 16, &last_pos);
+
+    if (chunk_len < 0)
+        return chunk_len;
+
+    if (chunk_len > INT32_MAX)
+        return -1;
+
+    // if full line was not parsed as number, some data may left
+    data += last_pos;
+    len  -= last_pos;
+
+    // skip LWS after number
+    while (len && htp_is_lws(*data)) {
+        data++;
+        len--;
+    }
+
+    // minimal validation of the rest of the string...
+    if (len && *data != ';')
+        return -1002;
+
     return chunk_len;
 }
 

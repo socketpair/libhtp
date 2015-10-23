@@ -1995,3 +1995,47 @@ TEST_F(ConnectionParsing, FullDataReconstruction) {
     collected_req.clear();
     collected_resp.clear();
 }
+
+
+ /*
+  *
+  *    rfc2616 state that:
+  *
+  *    quoted-string  = ( <"> *(qdtext | quoted-pair ) <"> )
+  *    uoted-pair    = "\" CHAR
+  *    CHAR           = <any US-ASCII character (octets 0 - 127)>
+  *    qdtext         = <any TEXT except <">>
+  *    TEXT           = <any OCTET except CTLs, but including LWS>
+  *    LWS            = [CRLF] 1*( SP | HT )
+  *
+  *
+  *
+  *    Chunked-Body   = *chunk
+  *                     last-chunk
+  *                     trailer
+  *                     CRLF
+  *    chunk          = chunk-size [ chunk-extension ] CRLF
+  *                     chunk-data CRLF
+  *    chunk-size     = 1*HEX
+  *    last-chunk     = 1*("0") [ chunk-extension ] CRLF
+  *    chunk-extension= *( ";" chunk-ext-name [ "=" chunk-ext-val ] )
+  *    chunk-ext-name = token
+  *    chunk-ext-val  = token | quoted-string
+  *    chunk-data     = chunk-size(OCTET)
+  *    trailer        = *(entity-header CRLF)
+  *
+  *   So, chunk extension may contain \r\n inside quotes !!!!
+  */
+
+TEST_F(ConnectionParsing, ChunkedExtensions) {
+    int rc = test_run(home, "92-both-body-chunked-with-extension.t", cfg, &connp);
+    ASSERT_GE(rc, 0);
+
+    ASSERT_EQ(1, htp_list_size(connp->conn->transactions));
+
+    htp_tx_t *tx = (htp_tx_t *) htp_list_get(connp->conn->transactions, 0);
+    ASSERT_TRUE(tx != NULL);
+
+    ASSERT_EQ(HTP_REQUEST_COMPLETE, tx->request_progress);
+    ASSERT_EQ(HTP_RESPONSE_COMPLETE, tx->response_progress);
+}

@@ -488,48 +488,49 @@ htp_status_t htp_connp_REQ_BODY_CHUNKED_DATA(htp_connp_t *connp) {
  * @returns HTP_OK on state change, HTP_ERROR on error, or HTP_DATA when more data is needed.
  */
 htp_status_t htp_connp_REQ_BODY_CHUNKED_LENGTH(htp_connp_t *connp) {
-    for (;;) {
+    do {
         IN_COPY_BYTE_OR_RETURN(connp);
 
         // Have we reached the end of the line?
-        if (connp->in_next_byte == LF) {
-            unsigned char *data;
-            size_t len;
+    } while (connp->in_next_byte != LF);
 
-            if (htp_connp_req_consolidate_data(connp, &data, &len) != HTP_OK) {
-                return HTP_ERROR;
-            }
+    unsigned char *data;
+    size_t len;
 
-            connp->in_tx->request_message_len += len;
-
-            #ifdef HTP_DEBUG
-            fprint_raw_data(stderr, "Chunk length line", data, len);
-            #endif
-
-            htp_chomp(data, &len);
-
-            connp->in_chunked_length = htp_parse_chunked_length(data, len);
-
-            htp_connp_req_clear_buffer(connp);
-
-            // Handle chunk length.
-            if (connp->in_chunked_length > 0) {
-                // More data available.                
-                connp->in_state = htp_connp_REQ_BODY_CHUNKED_DATA;
-            } else if (connp->in_chunked_length == 0) {
-                // End of data.
-                connp->in_state = htp_connp_REQ_HEADERS;
-                connp->in_tx->request_progress = HTP_REQUEST_TRAILER;
-            } else {
-                // Invalid chunk length.
-                htp_log(connp, HTP_LOG_MARK, HTP_LOG_ERROR, 0, "Request chunk encoding: Invalid chunk length");
-                return HTP_ERROR;
-            }
-
-            return HTP_OK;
-        }
+    if (htp_connp_req_consolidate_data(connp, &data, &len) != HTP_OK) {
+        return HTP_ERROR;
     }
 
+    connp->in_tx->request_message_len += len;
+
+    #ifdef HTP_DEBUG
+    fprint_raw_data(stderr, "Chunk length line", data, len);
+    #endif
+
+    if (htp_chomp(data, &len) != 2) {
+        return HTP_ERROR;
+    }
+
+    connp->in_chunked_length = htp_parse_chunked_length(data, len);
+
+    htp_connp_req_clear_buffer(connp);
+
+    // Handle chunk length.
+    if (connp->in_chunked_length > 0) {
+        // More data available.
+        connp->in_state = htp_connp_REQ_BODY_CHUNKED_DATA;
+        return HTP_OK;
+    }
+
+    if (connp->in_chunked_length == 0) {
+        // End of data.
+        connp->in_state = htp_connp_REQ_HEADERS;
+        connp->in_tx->request_progress = HTP_REQUEST_TRAILER;
+        return HTP_OK;
+    } 
+
+    // Invalid chunk length.
+    htp_log(connp, HTP_LOG_MARK, HTP_LOG_ERROR, 0, "Request chunk encoding: Invalid chunk length");
     return HTP_ERROR;
 }
 
